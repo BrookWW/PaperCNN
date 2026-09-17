@@ -1,0 +1,6 @@
+# 历史实验中实际使用的核心版本（Python 3.12.13）；不含传递依赖。
+# Core versions used for the recorded experiments (Python 3.12.13); excludes transitive dependencies.
+torch==2.14.0
+numpy==2.5.3
+Pillow==12.3.0
+matplotlib==3.11.1

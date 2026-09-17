@@ -1,0 +1,22 @@
+{
+  "data_root": "<ARXIV_DATA_ROOT>",
+  "epochs": 5,
+  "batch_size": 16,
+  "lr": 0.003,
+  "weight_decay": 0.0001,
+  "device": "cpu",
+  "image_size": [
+    128,
+    96
+  ],
+  "labels": [
+    "math",
+    "physics",
+    "cs"
+  ],
+  "split_seed": 231,
+  "model_seed": 1718,
+  "train_count": 2400,
+  "val_count": 600,
+  "torch_version": "2.14.0"
+}

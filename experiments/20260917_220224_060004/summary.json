@@ -1,0 +1,30 @@
+{
+  "best_epoch": 6,
+  "best_val_accuracy": 0.765,
+  "restored_val": {
+    "loss": 0.6040411488215128,
+    "accuracy": 0.765,
+    "macro_f1": 0.7632234692573547,
+    "num_examples": 600,
+    "confusion_matrix": [
+      [
+        175,
+        5,
+        20
+      ],
+      [
+        20,
+        128,
+        52
+      ],
+      [
+        26,
+        18,
+        156
+      ]
+    ]
+  },
+  "reload_logits_match": true,
+  "test_set_used": false,
+  "training_metrics": "each batch before parameter update; loss is mean cross entropy"
+}

@@ -1,0 +1,23 @@
+# 本地环境与缓存 / Local environments and caches
+.venv
+venv/
+__pycache__/
+*.py[cod]
+.cache/
+.pytest_cache/
+.coverage
+
+# 数据与训练产物 / Datasets and training artifacts
+/data
+runs/
+*.pt
+*.pth
+!checkpoints/papercnn.pt
+
+# 本地配置与系统文件 / Local configuration and system files
+.env
+.env.*
+.DS_Store
+._*
+.idea/
+.vscode/

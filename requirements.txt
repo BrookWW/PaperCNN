@@ -1,0 +1,6 @@
+# 支持的依赖范围；历史实验环境见 requirements-lock.txt。
+# Supported dependency ranges; see requirements-lock.txt for the recorded environment.
+torch>=2.6,<3
+numpy>=1.26,<3
+Pillow>=10,<13
+matplotlib>=3.8,<4
