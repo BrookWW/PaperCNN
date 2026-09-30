@@ -9,7 +9,7 @@
 ![Parameters](https://img.shields.io/badge/Parameters-5%2C955-334155)
 ![Validation accuracy](https://img.shields.io/badge/Validation%20accuracy-76.50%25-0F766E)
 
-[中文](#中文) · [English](#english) · [数据格式 / Dataset](docs/DATASET.md) · [实验记录 / Experiments](docs/EXPERIMENTS.md)
+[中文](#中文) · [English](#english) · [数据格式 / Dataset](docs/DATASET.md) · [实验记录 / Experiments](docs/EXPERIMENTS.md) · [线索消融 / Cue ablations](docs/EXPERIMENTS.md#geometry-and-saved-settings)
 
 </div>
 
