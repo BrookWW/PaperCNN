@@ -14,7 +14,7 @@ import torch
 from torch import nn
 
 import config
-from data import LABELS, make_loaders
+from data import ABLATION_MODES, LABELS, ablation_settings, make_loaders
 from model import PaperCNN, train_batch
 
 
@@ -105,6 +105,8 @@ def main(argv=None):
                         help="权重衰减系数 / Weight decay coefficient")
     parser.add_argument("--device", choices=("cpu", "mps", "cuda"), default=config.DEVICE,
                         help="计算设备 / Compute device")
+    parser.add_argument("--ablation", choices=ABLATION_MODES, default="none",
+                        help="Deterministic page-region ablation before resize (default: none)")
     args = parser.parse_args(argv)
     args.data_root = args.data_root.expanduser().resolve()
     if args.epochs < 1 or args.batch_size < 1 or not np.isfinite(args.lr) or args.lr <= 0:
@@ -124,7 +126,8 @@ def main(argv=None):
     np.random.seed(config.MODEL_SEED)
     torch.manual_seed(config.MODEL_SEED)
     loaders = make_loaders(args.data_root, args.batch_size, config.IMAGE_SIZE,
-                           config.SPLIT_SEED, config.VAL_PER_CLASS, config.NUM_WORKERS)
+                           config.SPLIT_SEED, config.VAL_PER_CLASS, config.NUM_WORKERS,
+                           ablation=args.ablation)
     train_loader, val_loader, split_info = loaders
     model = PaperCNN(num_classes=len(LABELS)).to(device)
     optimizer = make_optimizer(model, args.lr, args.weight_decay)
@@ -134,7 +137,7 @@ def main(argv=None):
                 "image_size": list(config.IMAGE_SIZE), "labels": list(LABELS),
                 "split_seed": config.SPLIT_SEED, "model_seed": config.MODEL_SEED,
                 "train_count": len(train_loader.dataset), "val_count": len(val_loader.dataset),
-                "torch_version": torch.__version__}
+                "torch_version": torch.__version__, "ablation": ablation_settings(args.ablation)}
     (output / "config.json").write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n")
     (output / "split.json").write_text(json.dumps(split_info, ensure_ascii=False, indent=2) + "\n")
     print(f"训练 / Train: {len(train_loader.dataset)}；验证 / Validation: {len(val_loader.dataset)}；"
@@ -155,6 +158,7 @@ def main(argv=None):
                 best_scores = model(probe_images).detach().cpu().clone()
             torch.save({"model_state_dict": model.state_dict(), "num_classes": len(LABELS),
                         "labels": list(LABELS), "image_size": list(config.IMAGE_SIZE),
+                        "ablation": settings["ablation"],
                         "preprocessing": "grayscale; aspect-preserving white padding; 1 - pixel/255",
                         "split_info": split_info, "data_root": settings["data_root"],
                         "epoch": epoch, "val_accuracy": best_accuracy}, output / "best.pt")
@@ -167,7 +171,7 @@ def main(argv=None):
     restored.eval()
     with torch.no_grad():
         torch.testing.assert_close(restored(probe_images).cpu(), best_scores, rtol=1e-5, atol=1e-6)
-    summary = {"best_epoch": best_epoch, "best_val_accuracy": best_accuracy,
+    summary = {"ablation": settings["ablation"], "best_epoch": best_epoch, "best_val_accuracy": best_accuracy,
                "restored_val": evaluate(restored, val_loader, device),
                "reload_logits_match": True, "test_set_used": False,
                "training_metrics": "each batch before parameter update; loss is mean cross entropy"}

@@ -4,6 +4,7 @@ First-page data: CSV validation, deterministic stratified splitting, and lazy lo
 
 import csv
 import hashlib
+import math
 from pathlib import Path
 import re
 
@@ -132,7 +133,41 @@ def split_train_val(rows, seed=231, val_per_class=200):
     return fit, val
 
 
-def load_image(path, image_size=(128, 96)):
+ABLATION_MODES = ("none", "top-strip", "body-only")
+
+
+def ablation_settings(mode="none"):
+    """Return the complete, versioned geometry of a deterministic cue ablation.
+
+    Coordinates refer to the original grayscale page, before resize/padding.
+    These geometric regions do not detect or identify semantic content.
+    """
+    if mode not in ABLATION_MODES:
+        raise ValueError(f"Unknown cue ablation: {mode!r}; choose from {ABLATION_MODES}")
+    settings = {"mode": mode, "version": 1, "stage": "before_resize_and_padding"}
+    if mode == "top-strip":
+        settings.update(top_fraction=0.25, fill_gray=255, rounding="ceil")
+    elif mode == "body-only":
+        settings.update(top_fraction=0.25, bottom_fraction=0.90,
+                        horizontal_region="full_width", rounding="floor", min_height_rows=1)
+    return settings
+
+
+def apply_ablation(image, mode="none"):
+    """Mask/crop a grayscale PIL page without mutating the input image."""
+    settings = ablation_settings(mode)  # Validate even for direct callers.
+    width, height = image.size
+    if mode == "top-strip":
+        image = image.copy()
+        image.paste(255, (0, 0, width, math.ceil(height * settings["top_fraction"])))
+    elif mode == "body-only":
+        top = math.floor(height * settings["top_fraction"])
+        bottom = max(top + settings["min_height_rows"], math.floor(height * settings["bottom_fraction"]))
+        image = image.crop((0, top, width, bottom))
+    return image
+
+
+def load_image(path, image_size=(128, 96), ablation="none"):
     """image_size 为 (高, 宽)，输出 float32 张量，形状为 (1, 高, 宽)。
     Accept image_size as (height, width); return a float32 tensor of shape (1, height, width).
 
@@ -140,7 +175,9 @@ def load_image(path, image_size=(128, 96)):
     Resize with aspect ratio preserved, pad with white, and map white to 0 and black ink to 1.
     变换不依赖学习到的统计量；每次读取一致，且不修改原图。
     The transform uses no learned statistics, is deterministic, and leaves source images unchanged.
+    Optional cue masking/cropping acts on the original page before resizing and padding.
     """
+    ablation_settings(ablation)
     if len(image_size) != 2:
         raise ValueError("image_size 必须是 (高, 宽) / image_size must be (height, width)")
     height, width = image_size
@@ -148,7 +185,7 @@ def load_image(path, image_size=(128, 96)):
     _positive_int(width, "图像宽度 / image width")
     with Image.open(path) as image:
         image = ImageOps.pad(
-            image.convert("L"), (width, height),
+            apply_ablation(image.convert("L"), ablation), (width, height),
             method=Image.Resampling.LANCZOS, color=255,
         )
         gray = np.asarray(image, dtype=np.float32)
@@ -161,24 +198,26 @@ class PageDataset(Dataset):
     Open images on demand; rows come from read_rows or its train/validation split.
     """
 
-    def __init__(self, root, rows, image_size=(128, 96)):
+    def __init__(self, root, rows, image_size=(128, 96), ablation="none"):
         self.root = Path(root).expanduser().resolve()
         self.rows = [dict(row) for row in rows]
         self.image_size = tuple(image_size)
+        ablation_settings(ablation)
+        self.ablation = ablation
 
     def __len__(self):
         return len(self.rows)
 
     def __getitem__(self, index):
         row = self.rows[index]
-        image = load_image(self.root / row["image_path"], self.image_size)
+        image = load_image(self.root / row["image_path"], self.image_size, self.ablation)
         target = LABEL_TO_INDEX[row["label"]]
         return image, target
 
 
 def make_loaders(
     root, batch_size=16, image_size=(128, 96), split_seed=231,
-    val_per_class=200, num_workers=0,
+    val_per_class=200, num_workers=0, ablation="none",
 ):
     """构造训练/验证 DataLoader，并返回可保存到 JSON 的划分信息。
     Build train/validation DataLoaders and return JSON-serializable split metadata.
@@ -196,11 +235,11 @@ def make_loaders(
     train_rows, val_rows = split_train_val(rows, split_seed, val_per_class)
     generator = torch.Generator().manual_seed(split_seed)
     train_loader = DataLoader(
-        PageDataset(root, train_rows, image_size), batch_size=batch_size,
+        PageDataset(root, train_rows, image_size, ablation), batch_size=batch_size,
         shuffle=True, generator=generator, num_workers=num_workers,
     )
     val_loader = DataLoader(
-        PageDataset(root, val_rows, image_size), batch_size=batch_size,
+        PageDataset(root, val_rows, image_size, ablation), batch_size=batch_size,
         shuffle=False, num_workers=num_workers,
     )
     split_info = {

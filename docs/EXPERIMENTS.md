@@ -129,3 +129,64 @@ Limitations of the available evidence:
 - **Repeated reuse of the same validation set.** Selection bias may affect the best result; independent testing is needed after fixing the model.
 - **No cross-source evaluation or cue ablations.** Titles, templates, author names, equations, and other cues may contribute. Performance does not establish exclusive reliance on layout or understanding of paper content.
 - **A CSV hash is not an image hash.** Identical manifests do not guarantee identical image bytes. Strict reproduction also requires image integrity checks and environment records.
+
+## 可复现的线索消融框架 / Reproducible cue-ablation framework
+
+新增框架支持以下确定性变换；**尚未运行真实论文数据的消融实验，没有消融准确率或准确率变化结果**。上面的历史记录保持不变，仍无跨来源评估或线索消融证据。`body-only` 是几何裁剪的名称，不保证只保留正文，也不检测标题、作者或公式。
+
+The framework now supports these deterministic transforms. **No ablation experiment on real paper data has been run for this change, and no ablation accuracy or accuracy delta is reported.** Historical evidence above is unchanged; it still contains no cross-source evaluation or cue-ablation results. `body-only` names a geometric crop, not semantic body detection.
+
+### Geometry and saved settings
+
+All operations act on the original grayscale page **before** the existing aspect-preserving resize, white padding, and conversion to float32 ink (`1 - pixel/255`). Coordinates are independent of labels, split membership, learned statistics, and random seeds. Let `H` be the source page height; pixel intervals below exclude the upper endpoint.
+
+| `--ablation` | Version 1 operation | Interpretation |
+|---|---|---|
+| `none` (training default) | Keep the complete page | Original preprocessing, unchanged |
+| `top-strip` | Fill rows `[0, ceil(0.25 * H))` with white (255), preserving source dimensions | Remove the upper quarter without enlarging remaining content |
+| `body-only` | Keep full width and rows `[floor(0.25 * H), max(floor(0.25 * H) + 1, floor(0.90 * H)))` | Remove upper and lower regions; resizing the crop also changes scale and padding |
+
+The minimum one-row crop makes tiny synthetic images well-defined. These regions can remove body text or retain titles/authors depending on the page. Templates and equations can remain in either mode. Neither mode isolates a single semantic cue, proves causal reliance on that cue, or provides cross-source evaluation.
+
+训练与验证使用相同变换，划分与种子不变。`config.json`、`best.pt`、`summary.json` 保存完整 `ablation` 字典（模式、版本、执行阶段、几何参数及取整规则）。预测默认继承 checkpoint 设置；旧 checkpoint 缺少此字段时采用 `none`。显式覆盖时，报告保存训练和预测设置以及是否一致，避免混淆重新训练与预测阶段的扰动。
+
+Training and validation use the same setting through `data.load_image()`. Splitting and random seeds are unaffected. New `config.json`, `best.pt`, and `summary.json` files record a complete `ablation` dictionary: mode, version, processing stage, and applicable geometry, rounding, and fill value. Existing historical records are not rewritten. Prediction inherits the checkpoint setting unless `--ablation` is explicit. A legacy checkpoint without ablation metadata uses `none`; unsupported/inconsistent metadata is rejected rather than silently interpreted.
+
+Single-image, validation, and test reports include `training_ablation`, effective `ablation`, `ablation_override`, and `preprocessing_matches_training`. `--output-json` saves that same report; its parent directory must already exist. Passing an explicit matching mode records an override with matching preprocessing; a different mode records a mismatch. Applying masking to a full-page checkpoint is a prediction-time sensitivity probe, a different experiment from retraining with masked input.
+
+### Run a matched comparison when the dataset is available
+
+Supply actual images and manifests in the documented [dataset format](DATASET.md), keep `config.py` seeds, image size, split parameters, environment, and hyperparameters fixed, and train a fresh model for each setting:
+
+```bash
+for mode in none top-strip body-only; do
+  python train.py --data-root "$ARXIV_DATA_ROOT" --epochs 6 --batch-size 16 \
+    --lr 0.003 --weight-decay 0.0003 --device cpu --ablation "$mode"
+done
+```
+
+Each invocation writes a separate directory in `runs/`. Associate directories using their saved ablation metadata. Check that `split.json` files have identical training/validation rows and CSV hash. Preserve source image hashes, repository revision, and dependency/environment information alongside the runs; the CSV hash alone cannot establish identical inputs. GPU/backend differences can still prevent bitwise numerical reproducibility. The transforms themselves are deterministic for the same image bytes and preprocessing library versions.
+
+For each completed run, inspect `summary.json` and evaluate its checkpoint with inherited preprocessing:
+
+```bash
+python predict.py --checkpoint runs/<run_id>/best.pt --split val \
+  --data-root "$ARXIV_DATA_ROOT" --output-json validation_report.json
+```
+
+To probe the published full-page checkpoint with masking, explicitly request the override:
+
+```bash
+python predict.py --checkpoint checkpoints/papercnn.pt --image /path/to/page.png \
+  --ablation top-strip --output-json masked_prediction.json
+```
+
+Keep prediction-time probes separate from matched retraining comparisons. Use validation only for development; lock the experiment settings before evaluating reserved test data. To evaluate a locked checkpoint, replace `--split val` with `--split test`. The existing paper/version overlap checks apply in every mode. Report measured accuracy, macro-F1, confusion matrices, and differences only from retained actual run artifacts. A single paired seed does not support significance or generalization claims; additional seeds and cross-source data require separate experiments.
+
+### Synthetic regression checks
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The tests use generated pages to check exact region boundaries (including odd heights and one-pixel pages), transform-before-resize ordering, unchanged source bytes, repeatability, tensor shape/type/range, unchanged splits, train/validation/test propagation, saved metadata, checkpoint reload, prediction overrides, legacy defaults, and invalid-setting rejection. Synthetic training is an integration check, **not evidence of accuracy on papers**.
